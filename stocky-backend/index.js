@@ -1,0 +1,164 @@
+import express from "express";
+import pool from "./db/db.js";
+import { getStockPrice } from "../priceService.js";
+const app = express();
+
+//middleware
+app.use(express.json());
+
+app.get("/", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------
+// 1. POST /reward
+// -----------------------------
+app.post("/reward", async (req, res) => {
+  const { userId, stockSymbol, shares } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO rewards (user_id, stock_symbol, shares) 
+       VALUES ($1, $2, $3) RETURNING *`,
+      [userId, stockSymbol, shares]
+    );
+
+    // log in ledger also
+    const price = getStockPrice(stockSymbol);
+    const inrOutflow = (shares * price).toFixed(2);
+
+    await pool.query(
+      `INSERT INTO ledger (reward_id, stock_symbol, shares, inr_outflow, fees) 
+       VALUES ($1, $2, $3, $4, $5)`,
+      [result.rows[0].id, stockSymbol, shares, inrOutflow, 20] // fixed fee for now
+    );
+
+    res.json({ message: "Reward recorded", reward: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error inserting reward" });
+  }
+});
+
+// -----------------------------
+// 2. GET /today-stocks/:userId
+// -----------------------------
+app.get("/today-stocks/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM rewards 
+       WHERE user_id = $1 AND DATE(rewarded_at) = CURRENT_DATE`,
+      [userId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error fetching today's stocks" });
+  }
+});
+
+// -----------------------------
+// 3. GET /historical-inr/:userId
+// -----------------------------
+app.get("/historical-inr/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT DATE(rewarded_at) as day, 
+              SUM(shares * 2000) as total_inr -- using base price
+       FROM rewards
+       WHERE user_id = $1 AND DATE(rewarded_at) < CURRENT_DATE
+       GROUP BY day
+       ORDER BY day DESC`,
+      [userId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error fetching historical INR" });
+  }
+});
+
+// -----------------------------
+// 4. GET /stats/:userId
+// -----------------------------
+app.get("/stats/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    // total shares rewarded today
+    const today = await pool.query(
+      `SELECT stock_symbol, SUM(shares) as total_shares
+       FROM rewards
+       WHERE user_id = $1 AND DATE(rewarded_at) = CURRENT_DATE
+       GROUP BY stock_symbol`,
+      [userId]
+    );
+
+    // portfolio current value
+    const rewards = await pool.query(
+      `SELECT stock_symbol, SUM(shares) as total_shares
+       FROM rewards
+       WHERE user_id = $1
+       GROUP BY stock_symbol`,
+      [userId]
+    );
+
+    const portfolio = rewards.rows.map((r) => {
+      const price = getStockPrice(r.stock_symbol);
+      return {
+        stock: r.stock_symbol,
+        shares: r.total_shares,
+        currentValueINR: (r.total_shares * price).toFixed(2),
+      };
+    });
+
+    res.json({
+      today: today.rows,
+      portfolio,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error fetching stats" });
+  }
+});
+
+// -----------------------------
+// Bonus: GET /portfolio/:userId
+// -----------------------------
+app.get("/portfolio/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT stock_symbol, SUM(shares) as total_shares
+       FROM rewards
+       WHERE user_id = $1
+       GROUP BY stock_symbol`,
+      [userId]
+    );
+
+    const portfolio = result.rows.map((r) => ({
+      stock: r.stock_symbol,
+      shares: r.total_shares,
+      currentValueINR: (r.total_shares * getStockPrice(r.stock_symbol)).toFixed(
+        2
+      ),
+    }));
+
+    res.json(portfolio);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error fetching portfolio" });
+  }
+});

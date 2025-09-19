@@ -1,9 +1,8 @@
 import express from "express";
 import pool from "./db/db.js";
-import { getStockPrice } from "../priceService.js";
+import { getStockPrice } from "./priceService.js";
 const app = express();
 
-//middleware
 app.use(express.json());
 
 app.get("/", async (req, res) => {
@@ -15,9 +14,6 @@ app.get("/", async (req, res) => {
   }
 });
 
-// -----------------------------
-// 1. POST /reward
-// -----------------------------
 app.post("/reward", async (req, res) => {
   const { userId, stockSymbol, shares } = req.body;
 
@@ -28,14 +24,13 @@ app.post("/reward", async (req, res) => {
       [userId, stockSymbol, shares]
     );
 
-    // log in ledger also
     const price = getStockPrice(stockSymbol);
     const inrOutflow = (shares * price).toFixed(2);
 
     await pool.query(
       `INSERT INTO ledger (reward_id, stock_symbol, shares, inr_outflow, fees) 
        VALUES ($1, $2, $3, $4, $5)`,
-      [result.rows[0].id, stockSymbol, shares, inrOutflow, 20] // fixed fee for now
+      [result.rows[0].id, stockSymbol, shares, inrOutflow, 20]
     );
 
     res.json({ message: "Reward recorded", reward: result.rows[0] });
@@ -45,9 +40,6 @@ app.post("/reward", async (req, res) => {
   }
 });
 
-// -----------------------------
-// 2. GET /today-stocks/:userId
-// -----------------------------
 app.get("/today-stocks/:userId", async (req, res) => {
   const { userId } = req.params;
 
@@ -65,9 +57,6 @@ app.get("/today-stocks/:userId", async (req, res) => {
   }
 });
 
-// -----------------------------
-// 3. GET /historical-inr/:userId
-// -----------------------------
 app.get("/historical-inr/:userId", async (req, res) => {
   const { userId } = req.params;
 
@@ -89,14 +78,10 @@ app.get("/historical-inr/:userId", async (req, res) => {
   }
 });
 
-// -----------------------------
-// 4. GET /stats/:userId
-// -----------------------------
 app.get("/stats/:userId", async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // total shares rewarded today
     const today = await pool.query(
       `SELECT stock_symbol, SUM(shares) as total_shares
        FROM rewards
@@ -105,7 +90,6 @@ app.get("/stats/:userId", async (req, res) => {
       [userId]
     );
 
-    // portfolio current value
     const rewards = await pool.query(
       `SELECT stock_symbol, SUM(shares) as total_shares
        FROM rewards
@@ -133,9 +117,6 @@ app.get("/stats/:userId", async (req, res) => {
   }
 });
 
-// -----------------------------
-// Bonus: GET /portfolio/:userId
-// -----------------------------
 app.get("/portfolio/:userId", async (req, res) => {
   const { userId } = req.params;
 
@@ -161,4 +142,8 @@ app.get("/portfolio/:userId", async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "Error fetching portfolio" });
   }
+});
+
+app.listen(3000, () => {
+  console.log(`Server running on port 3000 `);
 });

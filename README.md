@@ -116,4 +116,15 @@ CREATE DATABASE mydb OWNER devuser;
 ```
 npm start
 ```
+## Edge Case Handling
+- Duplicate rewards / replay attacks : use unique transaction IDs or UNIQUE constraints in DB.
+- Stock splits / mergers / delisting : maintain an adjustment table and apply corrections to existing rewards.
+- Rounding errors : all amounts use NUMERIC type instead of floating-point.
+- Price API downtime : fallback to last cached price or retry mechanism.
 
+## Scaling Explanation
+- Indexes : add indexes on (user_id, stock_symbol) to speed up queries.
+- Background jobs : use a scheduler (e.g., cron job) to refresh stock prices hourly.
+- Caching : store frequently used portfolio values in Redis for quick retrieval.
+- Microservices : split reward service, ledger service, and price service into independent services for high traffic.
+- Horizontal scaling : deploy multiple instances of the backend behind a load balancer.
